@@ -1,5 +1,8 @@
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
+from docx.text.paragraph import Paragraph
 
 from packtools.sps.formats.pdf import enum as pdf_enum
 from packtools.sps.formats.pdf.pipeline import xml as xml_pipe
@@ -182,8 +185,11 @@ def docx_doi_pipe(docx, doi_code, paragraph=None, style_name='SCL Header Paragra
                 first_page_header, left_ratio=_JOURNAL_TITLE_DOI_SPLIT
             )
             para = doi_cell.paragraphs[0]
-        para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
+    # Right-aligned regardless of which branch supplied `para`: a caller
+    # passing its own `paragraph` wants the DOI right-aligned in it too,
+    # not just when this function creates the cell itself.
+    para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     r = para.add_run(doi_url)
     r.style = docx.styles[style_name]
 
@@ -371,12 +377,12 @@ def docx_cite_as_pipe(
     docx_renderer.style.add_run_with_style(para, f'{cite_as_part_two}.', p2_style)
 
 def docx_second_header_pipe(
-        docx, 
-        journal_title, 
-        article_title, 
+        docx,
+        journal_title,
+        article_title,
         paragraph_header_style_name='SCL Header Paragraph',
         character_header_style_name='SCL Header Paragraph Char',
-        paragraph_title_style_name='SCL Journal Title Char'
+        paragraph_title_style_name='SCL Header Paragraph Char'
     ):
     """
     Adds the journal title and article title to the second page header of the DOCX document.
@@ -396,6 +402,14 @@ def docx_second_header_pipe(
     instead of wrapping under it. Each column gets half of the content
     width; the article title is right-aligned within its own column.
 
+    The journal title is written as plain, unbroken text in the small
+    'SCL Header Paragraph Char' style, not the masthead's
+    _format_journal_title_two_lines()/'SCL Journal Title Char' treatment:
+    that treatment is sized for the large first-page masthead, and forcing
+    it into this running header's column (already narrower, and further
+    split with the article title) pushed titles that fit the masthead in
+    two lines into three lines here instead.
+
     Args:
         docx (python-docx.Document): The DOCX document object.
         journal_title (str): The title of the journal to be added.
@@ -411,7 +425,7 @@ def docx_second_header_pipe(
 
     journal_para = journal_cell.paragraphs[0]
     journal_para.style = docx.styles[paragraph_header_style_name]
-    r1 = journal_para.add_run(_format_journal_title_two_lines(journal_title))
+    r1 = journal_para.add_run(journal_title)
     r1.style = docx.styles[paragraph_title_style_name]
 
     title_para = title_cell.paragraphs[0]
@@ -604,6 +618,8 @@ def _add_two_column_header_table(container, left_ratio=0.5):
     table = container.add_table(rows=1, cols=2, width=content_width)
     table.autofit = False
     table.allow_autofit = False
+    _remove_leading_empty_placeholder_paragraph(table)
+    _zero_table_cell_margins(table)
 
     left_cell, right_cell = table.rows[0].cells
     for column, width in zip(table.columns, (left_width, right_width)):
@@ -612,6 +628,54 @@ def _add_two_column_header_table(container, left_ratio=0.5):
         cell.width = width
 
     return left_cell, right_cell
+
+
+def _remove_leading_empty_placeholder_paragraph(table):
+    """
+    Removes the empty paragraph that precedes `table` in its container, if
+    and only if that paragraph is truly empty (no text, no runs, so no
+    graphic content either, since a drawing lives inside a run).
+
+    python-docx auto-creates one empty paragraph the first time a header or
+    footer's body is accessed, before any content is added to it. Because
+    `container.add_table()` appends the table after whatever is already
+    there, that placeholder paragraph ends up immediately before the table,
+    and being a paragraph (even an empty one) it still reserves a line's
+    worth of vertical space above it, pushing the table down.
+    """
+    previous = table._tbl.getprevious()
+    if previous is None or previous.tag != qn('w:p'):
+        return
+    placeholder = Paragraph(previous, table._parent)
+    if placeholder.text or placeholder.runs:
+        return
+    previous.getparent().remove(previous)
+
+
+def _zero_table_cell_margins(table, sides=('left', 'right')):
+    """
+    Zero the given cell-margin sides on a table's default cell margins
+    (w:tblCellMar in w:tblPr). Without this, a python-docx table keeps the
+    OOXML default of 108 twips (5.4pt) on every side, which offsets a
+    header/footer table's content from the flush-left/flush-right text used
+    everywhere else in the document (a plain paragraph has no such margin).
+    """
+    tblPr = table._tbl.tblPr
+    tblCellMar = OxmlElement('w:tblCellMar')
+    for side in sides:
+        margin = OxmlElement(f'w:{side}')
+        margin.set(qn('w:w'), '0')
+        margin.set(qn('w:type'), 'dxa')
+        tblCellMar.append(margin)
+
+    # w:tblCellMar must come after w:tblLayout/w:tblBorders/w:shd (none of
+    # which this table sets) and before w:tblLook in the CT_TblPr schema
+    # sequence; anchor on tblLook, which python-docx always adds.
+    tbl_look = tblPr.find(qn('w:tblLook'))
+    if tbl_look is not None:
+        tbl_look.addprevious(tblCellMar)
+    else:
+        tblPr.append(tblCellMar)
 
 
 def _body_column_count():

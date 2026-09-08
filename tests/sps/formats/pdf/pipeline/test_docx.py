@@ -162,6 +162,15 @@ class TestDocxDoiPipe(unittest.TestCase):
         header = docx_renderer.section.get_first_page_header(self.docx)
         self.assertEqual(len(header.tables), 1)
 
+    def test_right_aligns_a_caller_supplied_paragraph_too(self):
+        # Regression: the right-alignment used to be set only on the branch
+        # that creates its own cell, so a caller passing an existing
+        # `paragraph` got the DOI added without any alignment at all.
+        para = self.docx.add_paragraph()
+        docx_pipe.docx_doi_pipe(self.docx, '10.1590/example', paragraph=para)
+        self.assertEqual(para.alignment, WD_ALIGN_PARAGRAPH.RIGHT)
+        self.assertEqual(para.runs[-1].text, 'http://dx.doi.org/10.1590/example')
+
 
 class TestDocxArticleTypeAndCategoryPipe(unittest.TestCase):
     # TODO
@@ -269,13 +278,18 @@ class TestDocxSecondHeaderPipe(unittest.TestCase):
     def _title_paragraph(self):
         return self._second_header_table().rows[0].cells[1].paragraphs[0]
 
-    def test_two_word_title_keeps_one_word_per_line(self):
-        docx_pipe.docx_second_header_pipe(self.docx, 'Acta Amazonica', 'Some Article Title')
-        self.assertEqual(self._journal_paragraph().runs[0].text, 'Acta\nAmazonica')
-
-    def test_multi_word_title_is_capped_at_two_lines(self):
+    def test_journal_title_is_not_split_into_lines(self):
+        # Regression: the running header used to reuse the masthead's
+        # _format_journal_title_two_lines() treatment, which is sized for
+        # the large first-page title and pushed titles that already fit
+        # the masthead in two lines into three lines in this narrower,
+        # smaller-font running header column instead.
         docx_pipe.docx_second_header_pipe(self.docx, 'Brazilian Journal of Biology', 'Some Article Title')
-        self.assertEqual(self._journal_paragraph().runs[0].text, 'Brazilian\nJournal of Biology')
+        self.assertEqual(self._journal_paragraph().runs[0].text, 'Brazilian Journal of Biology')
+
+    def test_journal_title_uses_the_small_header_style_not_the_masthead_style(self):
+        docx_pipe.docx_second_header_pipe(self.docx, 'Acta Amazonica', 'Some Article Title')
+        self.assertEqual(self._journal_paragraph().runs[0].style.name, 'SCL Header Paragraph Char')
 
     def test_article_title_is_in_its_own_cell(self):
         docx_pipe.docx_second_header_pipe(self.docx, 'Acta Amazonica', 'Some Article Title')
@@ -414,6 +428,39 @@ class TestAddTwoColumnHeaderTable(unittest.TestCase):
         docx_pipe._add_two_column_header_table(header)
         table = header.tables[-1]
         self.assertEqual(table.style.name, 'Normal Table')
+
+    def test_removes_the_auto_created_empty_placeholder_paragraph(self):
+        # python-docx auto-creates one empty paragraph the first time a
+        # header's body is accessed; add_table() appends after it rather
+        # than replacing it, so left alone it reserves a blank line's
+        # worth of vertical space above the table.
+        docx = Document()
+        header = docx_renderer.section.get_first_page_header(docx)
+        docx_pipe._add_two_column_header_table(header)
+        self.assertEqual(len(header.paragraphs), 0)
+
+    def test_keeps_a_placeholder_paragraph_that_already_has_text(self):
+        docx = Document()
+        header = docx_renderer.section.get_first_page_header(docx)
+        header.paragraphs[0].add_run('not actually empty')
+        docx_pipe._add_two_column_header_table(header)
+        self.assertEqual(len(header.paragraphs), 1)
+        self.assertEqual(header.paragraphs[0].text, 'not actually empty')
+
+    def test_zeroes_left_and_right_cell_margins(self):
+        # The OOXML default (108 twips = 5.4pt) offsets a header table's
+        # content from the flush-left/flush-right text used everywhere
+        # else in the document, since a plain paragraph has no such margin.
+        docx = Document()
+        header = docx_renderer.section.get_first_page_header(docx)
+        docx_pipe._add_two_column_header_table(header)
+        table = header.tables[-1]
+        tblCellMar = table._tbl.tblPr.find(docx_pipe.qn('w:tblCellMar'))
+        self.assertIsNotNone(tblCellMar)
+        left = tblCellMar.find(docx_pipe.qn('w:left'))
+        right = tblCellMar.find(docx_pipe.qn('w:right'))
+        self.assertEqual(left.get(docx_pipe.qn('w:w')), '0')
+        self.assertEqual(right.get(docx_pipe.qn('w:w')), '0')
 
 
 class TestBodyColumnConfiguration(unittest.TestCase):
