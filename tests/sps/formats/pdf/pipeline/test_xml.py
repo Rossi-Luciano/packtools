@@ -688,38 +688,37 @@ class TestExtractContribData(unittest.TestCase):
         result = xml_pipe.extract_contrib_data(xml)
         self.assertEqual(result['affiliations'], ['I[^] University A'])
 
-    def test_all_referenced_affiliations_are_kept_regardless_of_id_pattern(self):
-        # The duplicate <aff>'s id doesn't follow one fixed naming
-        # convention across real packages (seen: aff1e, aff0100, aff1s, and
-        # a fully separate aff13-aff24 numbering) - the fix must not assume
-        # one, and must not drop a legitimately different affiliation that
-        # simply happens to use an unusual id.
+    def test_main_article_affiliations_are_kept_regardless_of_id_pattern(self):
         xml = etree.fromstring("""
             <article>
-                <contrib-group>
-                    <contrib>
-                        <name>
-                            <surname>Smith</surname>
-                            <given-names>John</given-names>
-                        </name>
-                        <xref ref-type="aff" rid="aff01"/>
-                    </contrib>
-                    <contrib>
-                        <name>
-                            <surname>Doe</surname>
-                            <given-names>Jane</given-names>
-                        </name>
-                        <xref ref-type="aff" rid="aff0100"/>
-                    </contrib>
-                </contrib-group>
-                <aff id="aff01">
-                    <label>1</label>
-                    <institution content-type="original">University A</institution>
-                </aff>
-                <aff id="aff0100">
-                    <label>2</label>
-                    <institution content-type="original">University B</institution>
-                </aff>
+                <front>
+                    <article-meta>
+                        <contrib-group>
+                            <contrib>
+                                <name>
+                                    <surname>Smith</surname>
+                                    <given-names>John</given-names>
+                                </name>
+                                <xref ref-type="aff" rid="aff01"/>
+                            </contrib>
+                            <contrib>
+                                <name>
+                                    <surname>Doe</surname>
+                                    <given-names>Jane</given-names>
+                                </name>
+                                <xref ref-type="aff" rid="aff0100"/>
+                            </contrib>
+                        </contrib-group>
+                        <aff id="aff01">
+                            <label>1</label>
+                            <institution content-type="original">University A</institution>
+                        </aff>
+                        <aff id="aff0100">
+                            <label>2</label>
+                            <institution content-type="original">University B</institution>
+                        </aff>
+                    </article-meta>
+                </front>
             </article>
         """)
         result = xml_pipe.extract_contrib_data(xml)
@@ -728,23 +727,33 @@ class TestExtractContribData(unittest.TestCase):
             ['1[^] University A', '2[^] University B'],
         )
 
-    def test_falls_back_to_every_affiliation_when_none_are_referenced(self):
-        # Defensive: an article with no aff xrefs at all (not seen in the
-        # real corpus) must not end up with an empty affiliation list.
+    def test_main_article_affiliation_without_xref_is_printed(self):
         xml = etree.fromstring("""
             <article>
-                <contrib-group>
-                    <contrib>
-                        <name>
-                            <surname>Smith</surname>
-                            <given-names>John</given-names>
-                        </name>
-                    </contrib>
-                </contrib-group>
-                <aff id="aff1">
-                    <label>1</label>
-                    <institution content-type="original">University A</institution>
-                </aff>
+                <front>
+                    <article-meta>
+                        <contrib-group>
+                            <contrib>
+                                <name>
+                                    <surname>Smith</surname>
+                                    <given-names>John</given-names>
+                                </name>
+                            </contrib>
+                        </contrib-group>
+                        <aff id="aff1">
+                            <label>1</label>
+                            <institution content-type="original">University A</institution>
+                        </aff>
+                    </article-meta>
+                </front>
+                <sub-article article-type="translation">
+                    <front-stub>
+                        <aff id="aff1e">
+                            <label>1</label>
+                            <institution content-type="original">Universidade A</institution>
+                        </aff>
+                    </front-stub>
+                </sub-article>
             </article>
         """)
         result = xml_pipe.extract_contrib_data(xml)
