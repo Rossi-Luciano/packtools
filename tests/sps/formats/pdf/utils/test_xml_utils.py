@@ -87,6 +87,32 @@ class TestGetTextFromNode(unittest.TestCase):
         result = xml_utils.get_text_from_node(xmltree)
         self.assertEqual('Before Figure 1 after', result)
 
+    def test_get_text_from_node_with_sup_inside_xref(self):
+        xmltree = etree.fromstring(
+            '<p>Author <xref ref-type="bibr"><sup>1,2</sup></xref> stated</p>'
+        )
+        self.assertEqual('Author 1,2 stated', xml_utils.get_text_from_node(xmltree))
+
+    def test_get_text_from_node_nested_formatting_with_tail(self):
+        xmltree = etree.fromstring(
+            '<p>Start <bold>bold <italic>and italic</italic> still bold</bold> end</p>'
+        )
+        self.assertEqual(
+            'Start bold and italic still bold end',
+            xml_utils.get_text_from_node(xmltree),
+        )
+
+    def test_get_text_from_node_normalizes_spaces_around_parentheses_and_punctuation(self):
+        xmltree = etree.fromstring(
+            '<p>Studies ( <xref ref-type="bibr">Author, 2020</xref> ; '
+            '<xref ref-type="bibr">Other, 2021</xref> ) and [ <xref ref-type="bibr">1</xref> ] '
+            'with comma ( <xref ref-type="bibr">Foo, 2019</xref> , more).</p>'
+        )
+        self.assertEqual(
+            'Studies (Author, 2020; Other, 2021) and [1] with comma (Foo, 2019, more).',
+            xml_utils.get_text_from_node(xmltree),
+        )
+
 
 class TestGetTextFromMixedCitationNode(unittest.TestCase):
 
