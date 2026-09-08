@@ -644,32 +644,45 @@ class TestExtractContribData(unittest.TestCase):
         self.assertEqual(result['authors_names'], ['John Smith[^]'])
         self.assertEqual(result['affiliations'], ['[^] University X'])
 
-    def test_unreferenced_duplicate_affiliation_is_not_printed(self):
-        # Regression: some SciELO packages carry a duplicate/orphaned <aff>
-        # that no contributor's xref points to (seen in a9.xml of the real
-        # test corpus: aff1e/aff2e duplicate aff1/aff2 under a different id
-        # suffix). findall('.//aff') picked up every <aff> in the document
-        # regardless of whether any contrib actually cited it, so the
-        # affiliation printed twice.
+    def test_subarticle_affiliation_is_not_printed(self):
+        # Regression: translated affiliations in a sub-article must not be
+        # included in the affiliation list of the main article.
         xml = etree.fromstring("""
             <article>
-                <contrib-group>
-                    <contrib>
-                        <name>
-                            <surname>Smith</surname>
-                            <given-names>John</given-names>
-                        </name>
-                        <xref ref-type="aff" rid="aff1"/>
-                    </contrib>
-                </contrib-group>
-                <aff id="aff1">
-                    <label>I</label>
-                    <institution content-type="original">University A</institution>
-                </aff>
-                <aff id="aff1e">
-                    <label>I</label>
-                    <institution content-type="original">University A</institution>
-                </aff>
+                <front>
+                    <article-meta>
+                        <contrib-group>
+                            <contrib>
+                                <name>
+                                    <surname>Smith</surname>
+                                    <given-names>John</given-names>
+                                </name>
+                                <xref ref-type="aff" rid="aff1"/>
+                            </contrib>
+                        </contrib-group>
+                        <aff id="aff1">
+                            <label>I</label>
+                            <institution content-type="original">University A</institution>
+                        </aff>
+                    </article-meta>
+                </front>
+                <sub-article article-type="translation">
+                    <front-stub>
+                        <contrib-group>
+                            <contrib>
+                                <name>
+                                    <surname>Smith</surname>
+                                    <given-names>John</given-names>
+                                </name>
+                                <xref ref-type="aff" rid="aff1e"/>
+                            </contrib>
+                        </contrib-group>
+                        <aff id="aff1e">
+                            <label>I</label>
+                            <institution content-type="original">Universidade A</institution>
+                        </aff>
+                    </front-stub>
+                </sub-article>
             </article>
         """)
         result = xml_pipe.extract_contrib_data(xml)
