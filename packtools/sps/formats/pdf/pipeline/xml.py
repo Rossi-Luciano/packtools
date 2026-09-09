@@ -167,14 +167,20 @@ def extract_contrib_data(xml_tree):
 def extract_abstract_data(xml_tree):
     """
     Extracts the title and content of the abstract from the given XML tree.
-    
+
+    Handles both a plain abstract (<p> direct children of <abstract>) and a
+    structured one (subsections wrapped in <sec>, e.g. Introduction/Methods/
+    Results, each with its own <title> and <p>) - see _extract_abstract_paragraphs.
+
     Args:
         xml_tree (ElementTree): The XML tree to extract the abstract from.
-    
+
     Returns:
         dict: A dictionary containing the following keys:
             - 'title': The text content of the abstract title element, or an empty string if not found.
-            - 'content': The text content of the abstract paragraphs, concatenated into a single string.
+            - 'content': The text content of the abstract paragraphs (and, for a
+              structured abstract, each subsection's title), concatenated into a
+              single string.
     """
     data = {'title': '', 'content': ''}
 
@@ -185,22 +191,22 @@ def extract_abstract_data(xml_tree):
         if node_title is not None:
             data['title'] = ''.join(node_title.itertext()).strip()
 
-        abstract = []
-        for p in node_abstract.findall('p'):
-            if p is not None:
-                abstract.append(''.join(p.itertext()).strip())
-        data['content'] = ' '.join(abstract)
+        data['content'] = ' '.join(_extract_abstract_paragraphs(node_abstract))
 
     return data
 
 def extract_trans_abstract_data(xml_tree, namespaces={'xml': 'http://www.w3.org/XML/1998/namespace'}):
     """
     Extracts the title and content of translated abstracts from the given XML tree.
-    
+
+    Handles both a plain and a structured trans-abstract (subsections wrapped
+    in <sec>) the same way extract_abstract_data does - see
+    _extract_abstract_paragraphs.
+
     Args:
         xml_tree (ElementTree): The XML tree to extract the translated abstracts from.
         namespaces (dict, optional): A dictionary of XML namespaces to use in the XPath expressions.
-    
+
     Returns:
         list: A list of dictionaries, where each dictionary contains the following keys:
             - 'lang': The language of the translated abstract.
@@ -220,11 +226,7 @@ def extract_trans_abstract_data(xml_tree, namespaces={'xml': 'http://www.w3.org/
 
         item['lang'] = node.attrib.get(lang_attrib_name)
 
-        abstract = []
-        for p in node.findall('p'):
-            if p is not None:
-                abstract.append(''.join(p.itertext()).strip())
-        item['content'] = ' '.join(abstract)
+        item['content'] = ' '.join(_extract_abstract_paragraphs(node))
 
         data.append(item)
     
@@ -343,6 +345,11 @@ def extract_body_data(xml_tree, table_layout_overrides=None):
     """
     Extracts the body data from an XML tree, including section titles, paragraphs, and tables.
 
+    Excludes any <sec> nested inside <abstract> or <trans-abstract> - those
+    are structured-abstract subsections handled by extract_abstract_data /
+    extract_trans_abstract_data, and would otherwise be picked up twice by
+    a plain './/sec' search.
+
     Args:
         xml_tree (ElementTree): The XML tree to extract the body data from.
         table_layout_overrides (dict, optional): Maps a table-wrap @id to a forced
@@ -360,7 +367,10 @@ def extract_body_data(xml_tree, table_layout_overrides=None):
     data = []
     seen_fig_keys = set()
 
-    for document_section in xml_tree.findall('.//sec'):
+    body_sections = xml_tree.xpath(
+        './/sec[not(ancestor::abstract) and not(ancestor::trans-abstract)]'
+    )
+    for document_section in body_sections:
         sec = {'paragraphs': [], 'tables': [], 'figures': []}
         sec['level'] = xml_utils.get_node_level(document_section, xml_tree)
         sec['title'] = document_section.find('title')
@@ -798,6 +808,43 @@ def get_table_column_info(headers, rows):
 # -----------------
 # Private helpers
 # -----------------
+
+def _extract_abstract_paragraphs(node):
+    """
+    Collects an abstract's readable text as a list of strings, one per
+    <p> found at any depth. A structured abstract wraps each subsection
+    in its own <sec> (e.g. <sec><title>Methods:</title><p>...</p></sec>),
+    so a plain `node.findall('p')` (direct children only) misses every
+    paragraph and returns an empty abstract. Recursing into <sec> finds
+    them, and including each <sec>'s own <title> in the flattened output
+    preserves the abstract's structure instead of silently merging
+    distinct subsections together. Some XMLs already carry a trailing
+    colon in the title (e.g. "Methods:"), others don't (e.g. "Methods");
+    a colon is appended only when the title lacks its own closing
+    punctuation, so it never gets duplicated.
+
+    Args:
+        node (ElementTree): The <abstract> or <trans-abstract> element
+            (or a <sec> within one, for the recursive call).
+
+    Returns:
+        list: Text fragments in document order - <sec> titles and <p> content.
+    """
+    parts = []
+    for child in node:
+        if child.tag == 'p':
+            parts.append(''.join(child.itertext()).strip())
+        elif child.tag == 'sec':
+            sec_title = child.find('title')
+            if sec_title is not None:
+                title_text = ''.join(sec_title.itertext()).strip()
+                if title_text:
+                    if title_text[-1] not in ':.!?;':
+                        title_text = f'{title_text}:'
+                    parts.append(title_text)
+            parts.extend(_extract_abstract_paragraphs(child))
+    return parts
+
 
 def _extract_table_rows_with_merged_cells(table_section, cell_tag):
     """

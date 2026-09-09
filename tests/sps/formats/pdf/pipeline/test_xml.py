@@ -83,6 +83,58 @@ class TestExtractAbstractData(unittest.TestCase):
         result = xml_pipe.extract_abstract_data(xml)
         self.assertEqual(result, expected)
 
+    def test_extract_abstract_data_structured_with_sections(self):
+        # Regression for issue #1332: a structured abstract wraps
+        # each subsection in its own <sec>, so a plain findall('p') (direct
+        # children only) found nothing and returned an empty content.
+        xml = etree.fromstring(
+            '<article><abstract>'
+            '<title>Abstract</title>'
+            '<sec><title>Introduction:</title><p>Some introduction text.</p></sec>'
+            '<sec><title>Methods:</title><p>Some methods text.</p></sec>'
+            '</abstract></article>'
+        )
+        expected = {
+            'title': 'Abstract',
+            'content': 'Introduction: Some introduction text. Methods: Some methods text.',
+        }
+        result = xml_pipe.extract_abstract_data(xml)
+        self.assertEqual(result, expected)
+
+    def test_extract_abstract_data_structured_section_title_without_punctuation(self):
+        # Some XMLs don't carry a trailing colon in the <sec><title>, unlike
+        # the "Methods:" style above - a colon must be added so the title
+        # doesn't run into the paragraph text (e.g. "Objetivodescrever...").
+        xml = etree.fromstring(
+            '<article><abstract>'
+            '<sec><title>Objetivo</title><p>Descrever o metodo.</p></sec>'
+            '</abstract></article>'
+        )
+        expected = {'title': '', 'content': 'Objetivo: Descrever o metodo.'}
+        result = xml_pipe.extract_abstract_data(xml)
+        self.assertEqual(result, expected)
+
+    def test_extract_abstract_data_structured_section_without_title(self):
+        xml = etree.fromstring(
+            '<article><abstract>'
+            '<sec><p>Untitled section text.</p></sec>'
+            '</abstract></article>'
+        )
+        expected = {'title': '', 'content': 'Untitled section text.'}
+        result = xml_pipe.extract_abstract_data(xml)
+        self.assertEqual(result, expected)
+
+    def test_extract_abstract_data_mixed_direct_and_sectioned_paragraphs(self):
+        xml = etree.fromstring(
+            '<article><abstract>'
+            '<p>Lead paragraph.</p>'
+            '<sec><title>Conclusion:</title><p>Final remarks.</p></sec>'
+            '</abstract></article>'
+        )
+        expected = {'title': '', 'content': 'Lead paragraph. Conclusion: Final remarks.'}
+        result = xml_pipe.extract_abstract_data(xml)
+        self.assertEqual(result, expected)
+
 
 class TestExtractAcknowledgmentData(unittest.TestCase):
 
@@ -296,6 +348,36 @@ class TestExtractBodyData(unittest.TestCase):
                 'level': 1,
                 'title': 'Section 1',
                 'paragraphs': ['Paragraph 1', 'Paragraph 2'],
+                'tables': [],
+                'figures': [],
+            }
+        ]
+        result = xml_pipe.extract_body_data(xml)
+        self.assertEqual(result, expected)
+
+    def test_extract_body_data_excludes_abstract_and_trans_abstract_sections(self):
+        # Regression: a structured abstract/trans-abstract wraps each
+        # subsection in its own <sec> (see extract_abstract_data), which a
+        # plain './/sec' search would also pick up as a body section,
+        # duplicating the same content in both the abstract and the body.
+        xml = etree.fromstring(
+            '<article>'
+            '<abstract>'
+            '<sec><title>Background:</title><p>Abstract text.</p></sec>'
+            '</abstract>'
+            '<trans-abstract>'
+            '<sec><title>Contexto:</title><p>Texto do resumo.</p></sec>'
+            '</trans-abstract>'
+            '<body>'
+            '<sec><title>Introduction</title><p>Body text.</p></sec>'
+            '</body>'
+            '</article>'
+        )
+        expected = [
+            {
+                'level': 2,
+                'title': 'Introduction',
+                'paragraphs': ['Body text.'],
                 'tables': [],
                 'figures': [],
             }
@@ -1723,6 +1805,30 @@ class TestExtractTransAbstractData(unittest.TestCase):
         )
         result = xml_pipe.extract_trans_abstract_data(xml)
         self.assertEqual(result[0]['title'], 'Resumo*')
+
+    def test_extract_trans_abstract_data_structured_with_sections(self):
+        # Regression for issue #1332: same bug as extract_abstract_data,
+        # a structured trans-abstract's <p> nested in <sec> was invisible
+        # to a plain findall('p'), so the translated abstract's content
+        # came out empty (e.g. a10.xml's RESUMO in the real test corpus).
+        xml = etree.fromstring(
+            '<article>'
+            '<trans-abstract xml:lang="pt">'
+            '<title>Resumo</title>'
+            '<sec><title>Contexto:</title><p>Texto de contexto.</p></sec>'
+            '<sec><title>Métodos:</title><p>Texto de métodos.</p></sec>'
+            '</trans-abstract>'
+            '</article>'
+        )
+        expected = [
+            {
+                'lang': 'pt',
+                'title': 'Resumo',
+                'content': 'Contexto: Texto de contexto. Métodos: Texto de métodos.',
+            }
+        ]
+        result = xml_pipe.extract_trans_abstract_data(xml)
+        self.assertEqual(result, expected)
 
 
 class TestExtractFigureData(unittest.TestCase):
