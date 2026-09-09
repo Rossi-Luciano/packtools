@@ -109,11 +109,14 @@ def extract_contrib_data(xml_tree):
     affiliations = []
     corresponding_author = ''
 
-    contrib_group = xml_tree.find('.//contrib-group')
+    article_meta = xml_tree.find('./front/article-meta')
+    metadata_scope = article_meta if article_meta is not None else xml_tree
+    contrib_group = metadata_scope.find('.//contrib-group')
     if contrib_group is not None:
         aff_mapping = {}
+        affs = metadata_scope.findall('.//aff')
 
-        for aff in xml_tree.findall('.//aff'):
+        for aff in affs:
             aff_id = aff.get('id')
             label = aff.find('label').text if aff.find('label') is not None else ''
             institution = aff.find('institution[@content-type="original"]')
@@ -140,12 +143,12 @@ def extract_contrib_data(xml_tree):
                                 full_name += label
                     full_name += corresp_mark
                     authors_names.append(full_name)
-        
-        for aff in xml_tree.findall('.//aff'):
+
+        for aff in affs:
             label = aff.find('label').text if aff.find('label') is not None else ''
             institution = aff.find('institution[@content-type="original"]')
             institution_name = institution.text if institution is not None else ''
-            
+
             if institution_name:
                 aff_info = f"{label}[^] {institution_name}"
                 affiliations.append(aff_info)

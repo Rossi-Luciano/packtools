@@ -680,6 +680,121 @@ class TestExtractContribData(unittest.TestCase):
         self.assertEqual(result['authors_names'], ['John Smith[^]'])
         self.assertEqual(result['affiliations'], ['[^] University X'])
 
+    def test_subarticle_affiliation_is_not_printed(self):
+        # Regression: translated affiliations in a sub-article must not be
+        # included in the affiliation list of the main article.
+        xml = etree.fromstring("""
+            <article>
+                <front>
+                    <article-meta>
+                        <contrib-group>
+                            <contrib>
+                                <name>
+                                    <surname>Smith</surname>
+                                    <given-names>John</given-names>
+                                </name>
+                                <xref ref-type="aff" rid="aff1"/>
+                            </contrib>
+                        </contrib-group>
+                        <aff id="aff1">
+                            <label>I</label>
+                            <institution content-type="original">University A</institution>
+                        </aff>
+                    </article-meta>
+                </front>
+                <sub-article article-type="translation">
+                    <front-stub>
+                        <contrib-group>
+                            <contrib>
+                                <name>
+                                    <surname>Smith</surname>
+                                    <given-names>John</given-names>
+                                </name>
+                                <xref ref-type="aff" rid="aff1e"/>
+                            </contrib>
+                        </contrib-group>
+                        <aff id="aff1e">
+                            <label>I</label>
+                            <institution content-type="original">Universidade A</institution>
+                        </aff>
+                    </front-stub>
+                </sub-article>
+            </article>
+        """)
+        result = xml_pipe.extract_contrib_data(xml)
+        self.assertEqual(result['affiliations'], ['I[^] University A'])
+
+    def test_main_article_affiliations_are_kept_regardless_of_id_pattern(self):
+        xml = etree.fromstring("""
+            <article>
+                <front>
+                    <article-meta>
+                        <contrib-group>
+                            <contrib>
+                                <name>
+                                    <surname>Smith</surname>
+                                    <given-names>John</given-names>
+                                </name>
+                                <xref ref-type="aff" rid="aff01"/>
+                            </contrib>
+                            <contrib>
+                                <name>
+                                    <surname>Doe</surname>
+                                    <given-names>Jane</given-names>
+                                </name>
+                                <xref ref-type="aff" rid="aff0100"/>
+                            </contrib>
+                        </contrib-group>
+                        <aff id="aff01">
+                            <label>1</label>
+                            <institution content-type="original">University A</institution>
+                        </aff>
+                        <aff id="aff0100">
+                            <label>2</label>
+                            <institution content-type="original">University B</institution>
+                        </aff>
+                    </article-meta>
+                </front>
+            </article>
+        """)
+        result = xml_pipe.extract_contrib_data(xml)
+        self.assertEqual(
+            result['affiliations'],
+            ['1[^] University A', '2[^] University B'],
+        )
+
+    def test_main_article_affiliation_without_xref_is_printed(self):
+        xml = etree.fromstring("""
+            <article>
+                <front>
+                    <article-meta>
+                        <contrib-group>
+                            <contrib>
+                                <name>
+                                    <surname>Smith</surname>
+                                    <given-names>John</given-names>
+                                </name>
+                            </contrib>
+                        </contrib-group>
+                        <aff id="aff1">
+                            <label>1</label>
+                            <institution content-type="original">University A</institution>
+                        </aff>
+                    </article-meta>
+                </front>
+                <sub-article article-type="translation">
+                    <front-stub>
+                        <aff id="aff1e">
+                            <label>1</label>
+                            <institution content-type="original">Universidade A</institution>
+                        </aff>
+                    </front-stub>
+                </sub-article>
+            </article>
+        """)
+        result = xml_pipe.extract_contrib_data(xml)
+        self.assertEqual(result['affiliations'], ['1[^] University A'])
+
 
 class TestExtractDOI(unittest.TestCase):
 
