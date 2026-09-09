@@ -342,6 +342,11 @@ def extract_body_data(xml_tree, table_layout_overrides=None):
     """
     Extracts the body data from an XML tree, including section titles, paragraphs, and tables.
 
+    Excludes any <sec> nested inside <abstract> or <trans-abstract> - those
+    are structured-abstract subsections handled by extract_abstract_data /
+    extract_trans_abstract_data, and would otherwise be picked up twice by
+    a plain './/sec' search.
+
     Args:
         xml_tree (ElementTree): The XML tree to extract the body data from.
         table_layout_overrides (dict, optional): Maps a table-wrap @id to a forced
@@ -359,7 +364,10 @@ def extract_body_data(xml_tree, table_layout_overrides=None):
     data = []
     seen_fig_keys = set()
 
-    for document_section in xml_tree.findall('.//sec'):
+    body_sections = xml_tree.xpath(
+        './/sec[not(ancestor::abstract) and not(ancestor::trans-abstract)]'
+    )
+    for document_section in body_sections:
         sec = {'paragraphs': [], 'tables': [], 'figures': []}
         sec['level'] = xml_utils.get_node_level(document_section, xml_tree)
         sec['title'] = document_section.find('title')
@@ -806,10 +814,12 @@ def _extract_abstract_paragraphs(node):
     in its own <sec> (e.g. <sec><title>Methods:</title><p>...</p></sec>),
     so a plain `node.findall('p')` (direct children only) misses every
     paragraph and returns an empty abstract. Recursing into <sec> finds
-    them, and including each <sec>'s own <title> (already carries the
-    subsection label and its own trailing colon, e.g. "Methods:")
-    preserves the abstract's structure in the flattened output instead
-    of silently merging distinct subsections together.
+    them, and including each <sec>'s own <title> in the flattened output
+    preserves the abstract's structure instead of silently merging
+    distinct subsections together. Some XMLs already carry a trailing
+    colon in the title (e.g. "Methods:"), others don't (e.g. "Methods");
+    a colon is appended only when the title lacks its own closing
+    punctuation, so it never gets duplicated.
 
     Args:
         node (ElementTree): The <abstract> or <trans-abstract> element
@@ -827,6 +837,8 @@ def _extract_abstract_paragraphs(node):
             if sec_title is not None:
                 title_text = ''.join(sec_title.itertext()).strip()
                 if title_text:
+                    if title_text[-1] not in ':.!?;':
+                        title_text = f'{title_text}:'
                     parts.append(title_text)
             parts.extend(_extract_abstract_paragraphs(child))
     return parts
