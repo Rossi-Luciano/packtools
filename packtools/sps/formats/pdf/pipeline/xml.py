@@ -360,7 +360,11 @@ def extract_body_data(xml_tree, table_layout_overrides=None):
         list: A list of dictionaries, where each dictionary represents a section in the body of the document. Each dictionary has the following keys:
             - 'level': The nesting level of the section.
             - 'title': The title of the section, if present.
-            - 'paragraphs': A list of the text content of each paragraph in the section, excluding paragraphs that contain table/figure references or wrappers.
+            - 'paragraphs': A list of the text content of each paragraph (and
+              of any <disp-formula> found as a direct sibling of a <p>, since
+              a structured formula isn't always wrapped in one) in the
+              section, excluding paragraphs that contain table/figure
+              references or wrappers.
             - 'tables': A list of dictionaries representing the tables in the section, as returned by the `extract_table_data` function.
             - 'figures': A list of dictionaries representing figures in the section, as returned by the `extract_figure_data` function.
     """
@@ -384,8 +388,20 @@ def extract_body_data(xml_tree, table_layout_overrides=None):
         # artificial space between every text-node fragment regardless of
         # whether the source had one there (e.g. "(<xref>...</xref>)" came
         # out as "( ... )", and "<xref/>; <xref/>" as "... ; ...").
-        for para in document_section.findall('p'):
-            para_text = xml_utils.get_text_from_node(para, skip_tags={'fig', 'table-wrap'}).strip()
+        #
+        # <disp-formula> isn't always nested inside a <p> - it's often a
+        # direct sibling of one - so a plain `findall('p')` silently drops
+        # it. Walking direct children instead of just `<p>` catches that
+        # case too. This still only flattens the formula's text (no
+        # MathML->OMML conversion yet, see issue #1347's phased plan), but
+        # flattened-and-present beats silently missing.
+        for child in document_section:
+            if child.tag == 'p':
+                para_text = xml_utils.get_text_from_node(child, skip_tags={'fig', 'table-wrap'}).strip()
+            elif child.tag == 'disp-formula':
+                para_text = xml_utils.get_text_from_node(child).strip()
+            else:
+                continue
             if para_text:
                 sec['paragraphs'].append(para_text)
 

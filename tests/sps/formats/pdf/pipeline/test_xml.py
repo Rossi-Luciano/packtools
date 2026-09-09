@@ -385,6 +385,40 @@ class TestExtractBodyData(unittest.TestCase):
         result = xml_pipe.extract_body_data(xml)
         self.assertEqual(result, expected)
 
+    def test_extract_body_data_includes_disp_formula_as_sibling_of_p(self):
+        # Regression for issue #1347: <disp-formula> is often a direct
+        # sibling of <p>, not nested inside one - a plain findall('p') never
+        # visits it, so the formula silently vanished from the output. No
+        # MathML->OMML conversion yet (see #1347's phased plan), just
+        # flattened text, but present beats missing.
+        xml = etree.fromstring(
+            '<article xmlns:mml="http://www.w3.org/1998/Math/MathML">'
+            '<sec>'
+            '<title>Section 1</title>'
+            '<p>See the formula below.</p>'
+            '<disp-formula id="e01">'
+            '<mml:math><mml:mi>Y</mml:mi><mml:mo>=</mml:mo><mml:mn>1</mml:mn></mml:math>'
+            '</disp-formula>'
+            '<p>Where Y is the result.</p>'
+            '</sec>'
+            '</article>'
+        )
+        expected = [
+            {
+                'level': 1,
+                'title': 'Section 1',
+                'paragraphs': [
+                    'See the formula below.',
+                    'Y=1',
+                    'Where Y is the result.',
+                ],
+                'tables': [],
+                'figures': [],
+            }
+        ]
+        result = xml_pipe.extract_body_data(xml)
+        self.assertEqual(result, expected)
+
     def test_extract_body_data_with_tables(self):
         xml = etree.fromstring(
             '<article>'
