@@ -321,23 +321,37 @@ def extract_footer_data(xmltree):
 def extract_cite_as_part_one(xml_tree, return_node=False):
     """
     Extracts the first part of the "cite as" data from the given XML tree.
-    
+
+    fn-type="other" is a generic JATS bucket that publishers use for all
+    sorts of unrelated footnotes (institutional acknowledgment, AI-use
+    declaration, JEL codes, plagiarism policy, ZooBank registration...),
+    so picking the first <fn fn-type="other"> in the document - regardless
+    of what it actually says - often surfaces the wrong note in the PDF's
+    citable CITE AS field (see issue #1349). Only a <fn> whose <label>
+    (or, when there's no <label>, the leading text of its <p>) actually
+    names it as a citation note - "Como citar:", "CITE AS:", "How to cite
+    this article" - is used; nothing is returned when no such note exists.
+
     Args:
         xml_tree (ElementTree): The XML tree to extract the "cite as" data from.
         return_node (bool, optional): If True, returns the XML node containing the "cite as" data. If False, returns the text content of the node. Defaults to False.
-    
+
     Returns:
         str or ElementTree: The first part of the "cite as" data, either as a string or as an XML node, depending on the value of the `return_node` parameter.
     """
-    fn_group = xml_tree.find('.//fn-group')
-    
-    if fn_group is not None:
-        part_one = fn_group.find('.//fn[@fn-type="other"]/p')
-        if part_one is not None:
-            if return_node:
-                return part_one
-            else:
-                return part_one.text
+    for fn in xml_tree.findall('.//fn[@fn-type="other"]'):
+        part_one = fn.find('p')
+        if part_one is None:
+            continue
+
+        label = fn.find('label')
+        signal = ''.join(label.itertext()) if label is not None else ''.join(part_one.itertext())[:40]
+        if 'cit' not in signal.lower():
+            continue
+
+        if return_node:
+            return part_one
+        return xml_utils.get_text_from_node(part_one).strip()
 
 def extract_body_data(xml_tree, table_layout_overrides=None):
     """

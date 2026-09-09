@@ -358,7 +358,7 @@ def docx_cite_as_pipe(
     Returns:
         None
     """
-    cite_as_part_two = f'{footer_data["volume"]}: {footer_data["location_label"]}'
+    cite_as_part_two = _format_cite_as_part_two(footer_data)
 
     footer = docx_renderer.section.get_first_page_footer(docx)
     para = docx_renderer.text.get_first_paragraph(footer)
@@ -598,6 +598,17 @@ def _format_vol_issue_year(footer_data):
         parts.append(f"({footer_data['issue']})")
     parts.append(f"{footer_data['year']}: {footer_data['location_label']}")
     return ' '.join(parts)
+
+def _format_cite_as_part_two(footer_data):
+    """
+    Format '{volume}: {location}' for the CITE AS line, dropping the volume
+    segment (and its ': ' separator) when the XML has no <volume> (e.g.
+    continuous-publication articles) instead of leaving a stray ': ' at
+    the start of the citation, as in "CITE AS: Journal : e236720." (#1349).
+    """
+    if footer_data['volume']:
+        return f"{footer_data['volume']}: {footer_data['location_label']}"
+    return footer_data['location_label']
 
 def _format_journal_title_two_lines(journal_title_text):
     """

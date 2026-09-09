@@ -250,6 +250,20 @@ class TestDocxCiteAsPipe(unittest.TestCase):
         self.assertIn('33: e282794.', para.text)
         self.assertNotIn('-.', para.text)
 
+    def test_omits_volume_colon_when_volume_is_absent(self):
+        # Regression for issue #1349: a stray ': ' used to be left at the
+        # start of the citation (e.g. "CITE AS: Journal : e236720.") when
+        # the XML has no <volume>, since the f-string didn't check for it.
+        docx = _docx_with_layout_styles()
+        footer_data = {'volume': '', 'issue': '', 'year': '2023',
+                       'fpage': '', 'lpage': '', 'location_label': 'e236720'}
+        docx_pipe.docx_cite_as_pipe(docx, 'Author AB. ', 'Journal Title', footer_data)
+
+        footer = docx_renderer.section.get_first_page_footer(docx)
+        para = docx_renderer.text.get_first_paragraph(footer)
+        self.assertIn('Journal Title e236720.', para.text)
+        self.assertNotIn(': e236720', para.text)
+
 
 class TestDocxSecondHeaderPipe(unittest.TestCase):
     """
@@ -460,6 +474,20 @@ class TestFormatVolIssueYear(unittest.TestCase):
     def test_omits_vol_label_when_volume_is_absent(self):
         footer_data = {'volume': '', 'issue': '67', 'year': '2023', 'location_label': 'e236720'}
         self.assertEqual(docx_pipe._format_vol_issue_year(footer_data), '(67) 2023: e236720')
+
+
+class TestFormatCiteAsPartTwo(unittest.TestCase):
+
+    def test_keeps_volume_when_present(self):
+        footer_data = {'volume': '86', 'location_label': 'e301043'}
+        self.assertEqual(docx_pipe._format_cite_as_part_two(footer_data), '86: e301043')
+
+    def test_omits_volume_colon_when_volume_is_absent(self):
+        # Regression for issue #1349: continuous-publication articles with
+        # no <volume> used to leave a stray ': ' at the start, e.g.
+        # "CITE AS: Cadernos Pagu : e236720." instead of "... e236720.".
+        footer_data = {'volume': '', 'location_label': 'e236720'}
+        self.assertEqual(docx_pipe._format_cite_as_part_two(footer_data), 'e236720')
 
 
 class TestAddTwoColumnHeaderTable(unittest.TestCase):

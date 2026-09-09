@@ -564,6 +564,60 @@ class TestExtractCiteAsPartOne(unittest.TestCase):
         result = xml_pipe.extract_cite_as_part_one(xml)
         self.assertIsNone(result)
 
+    def test_extract_cite_as_part_one_skips_unrelated_fn_type_other(self):
+        # Regression for issue #1349: fn-type="other" is a generic bucket
+        # publishers use for all sorts of unrelated notes (institutional
+        # acknowledgment, AI-use declaration, JEL codes...), so the first
+        # one in the document isn't necessarily the citation note. Only a
+        # <fn> whose <label> actually names it as one should be picked,
+        # even when it isn't the first fn-type="other" in the fn-group.
+        xml = etree.fromstring(
+            '<article>'
+            '<fn-group>'
+            '<fn fn-type="other"><label>ZooBank register</label>'
+            '<p>https://zoobank.org/some-id</p></fn>'
+            '<fn fn-type="other"><label>How to cite this article</label>'
+            '<p>Author AB (2024) Example citation.</p></fn>'
+            '</fn-group>'
+            '</article>'
+        )
+        expected = 'Author AB (2024) Example citation.'
+        result = xml_pipe.extract_cite_as_part_one(xml)
+        self.assertEqual(result, expected)
+
+    def test_extract_cite_as_part_one_none_when_no_note_is_a_citation(self):
+        # a11.xml-shaped case: the only fn-type="other" notes are
+        # institutional acknowledgments, with no <label> and no "cite"/
+        # "citar" wording - none of them should be mistaken for the
+        # citation note.
+        xml = etree.fromstring(
+            '<article>'
+            '<fn-group>'
+            '<fn fn-type="other"><p>Study carried out at University X.</p></fn>'
+            '</fn-group>'
+            '</article>'
+        )
+        result = xml_pipe.extract_cite_as_part_one(xml)
+        self.assertIsNone(result)
+
+    def test_extract_cite_as_part_one_full_text_with_nested_markup(self):
+        # Regression for issue #1349: using node.text alone (instead of
+        # full itertext) cut the citation off at the first child element,
+        # e.g. a DOI wrapped in <ext-link> right after the reference text.
+        xml = etree.fromstring(
+            '<article>'
+            '<fn-group>'
+            '<fn fn-type="other"><label>CITE AS:</label>'
+            '<p>Author AB. Example title. Journal 1: 2. '
+            '<ext-link>https://doi.org/10.1590/example</ext-link>'
+            '</p></fn>'
+            '</fn-group>'
+            '</article>'
+        )
+        expected = 'Author AB. Example title. Journal 1: 2. https://doi.org/10.1590/example'
+        result = xml_pipe.extract_cite_as_part_one(xml)
+        self.assertEqual(result, expected)
+
 
 class TestExtractContribData(unittest.TestCase):
 
