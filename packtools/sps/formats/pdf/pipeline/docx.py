@@ -349,17 +349,28 @@ def docx_cite_as_pipe(
     """
     Adds the citation information to the first page footer of the DOCX document.
 
+    When the XML carries an explicit "how to cite this article" note
+    (`cite_as_part_one`, from `extract_cite_as_part_one`), that note is
+    already a complete citation on its own - it's printed as-is, without
+    appending `journal_title`/volume/location after it. Appending those
+    unconditionally used to duplicate content already present in the note
+    (e.g. "CITE AS: Author AB... Zoologia 41: e23038. Zoologia 41:
+    e23038.") or run straight into it without a separator (see #1349
+    review). journal_title/volume/location are only used as a fallback
+    when there's no such note.
+
     Args:
         docx (python-docx.Document): The DOCX document object.
-        cite_as_part_one (str): The first part of the citation information to be added.
-        journal_title (str): The title of the journal to be added.
-        footer_data (dict): The data to be added to the footer.
+        cite_as_part_one (str): The article's own "how to cite" note, already a
+            complete citation, or a falsy value when the XML has none.
+        journal_title (str): The title of the journal, used only as part of the
+            fallback citation when `cite_as_part_one` is falsy.
+        footer_data (dict): The data used to build the fallback citation's
+            volume/issue/location segment.
 
     Returns:
         None
     """
-    cite_as_part_two = _format_cite_as_part_two(footer_data)
-
     footer = docx_renderer.section.get_first_page_footer(docx)
     para = docx_renderer.text.get_first_paragraph(footer)
     para.style = docx.styles['SCL Paragraph Cite As']
@@ -368,13 +379,21 @@ def docx_cite_as_pipe(
     docx_renderer.style.add_run_with_style(para, 'CITE AS: ', footer_style)
 
     p1_style = docx.styles['SCL Paragraph Cite As Char']
-    docx_renderer.style.add_run_with_style(para, cite_as_part_one, p1_style)
+    if cite_as_part_one:
+        # The note is a complete citation already, and may or may not end
+        # with its own terminal punctuation (an editorial note ending in
+        # "...e55bc24197." vs. one ending in a bare DOI URL) - only add a
+        # period when it doesn't already have one, instead of risking
+        # "...e55bc24197..".
+        suffix = '' if cite_as_part_one.endswith(('.', '!', '?')) else '.'
+        docx_renderer.style.add_run_with_style(para, f'{cite_as_part_one}{suffix}', p1_style)
+        return
 
     journal_title_style = docx.styles['SCL Paragraph Cite As Journal Title Char']
     docx_renderer.style.add_run_with_style(para, f'{journal_title} ', journal_title_style)
 
-    p2_style = docx.styles['SCL Paragraph Cite As Char']
-    docx_renderer.style.add_run_with_style(para, f'{cite_as_part_two}.', p2_style)
+    cite_as_part_two = _format_cite_as_part_two(footer_data)
+    docx_renderer.style.add_run_with_style(para, f'{cite_as_part_two}.', p1_style)
 
 def docx_second_header_pipe(
         docx,

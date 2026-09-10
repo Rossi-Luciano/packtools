@@ -518,6 +518,9 @@ class TestExtractCategory(unittest.TestCase):
 class TestExtractCiteAsPartOne(unittest.TestCase):
 
     def test_extract_cite_as_part_one_text(self):
+        # No separate <label>, so the "Cite as:" phrase lives inline at the
+        # start of <p> - stripped here since the caller already prints its
+        # own "CITE AS: " prefix and would otherwise duplicate it.
         xml = etree.fromstring(
             '<article>'
             '<fn-group>'
@@ -527,7 +530,27 @@ class TestExtractCiteAsPartOne(unittest.TestCase):
             '</fn-group>'
             '</article>'
         )
-        expected = 'Cite as: Example Citation'
+        expected = 'Example Citation'
+        result = xml_pipe.extract_cite_as_part_one(xml)
+        self.assertEqual(result, expected)
+
+    def test_extract_cite_as_part_one_strips_inline_phrase_only_without_label(self):
+        # Regression for #1349's review round 2 (a3-shaped case): when
+        # there's no <label>, "Como citar:" is embedded in <p> itself and
+        # must be stripped - but when a <label> does provide the signal
+        # (e.g. "CITE AS:"), <p> never had the phrase to begin with, so
+        # there's nothing to strip (see the nested-markup test below).
+        xml = etree.fromstring(
+            '<article>'
+            '<fn-group>'
+            '<fn fn-type="other">'
+            '<p>Como citar: Souza CM, Iser BM, Malta DC. Example title. '
+            'Journal 31(3):e31030043.</p>'
+            '</fn>'
+            '</fn-group>'
+            '</article>'
+        )
+        expected = 'Souza CM, Iser BM, Malta DC. Example title. Journal 31(3):e31030043.'
         result = xml_pipe.extract_cite_as_part_one(xml)
         self.assertEqual(result, expected)
 

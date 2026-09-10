@@ -1,5 +1,26 @@
+import re
+
 from packtools.sps.formats.pdf import enum as pdf_enum
 from packtools.sps.formats.pdf.utils import xml_utils
+
+# Anchor phrases (pt/en) that mark a footnote as the "how to cite this
+# article" note, replacing a bare `'cit' in signal.lower()` check (#1349
+# review: too easy to false-positive/negative on an unrelated 3-letter
+# substring). Matched case-insensitively against the <label> text, or the
+# leading text of <p> when there's no <label>.
+_CITE_AS_LABEL_PHRASES = (
+    r'como\s+citar',
+    r'cita(?:ç|c)[aã]o\s+sugerida',
+    r'cite\s+this\s+article\s+as',
+    r'how\s+to\s+cite\s+this\s+article',
+    r'how\s+to\s+cite',
+    r'cite\s+as',
+)
+_CITE_AS_LABEL_RE = re.compile('|'.join(_CITE_AS_LABEL_PHRASES), re.IGNORECASE)
+_CITE_AS_LEADING_PHRASE_RE = re.compile(
+    r'^\s*(?:' + '|'.join(_CITE_AS_LABEL_PHRASES) + r')\s*:?\s*',
+    re.IGNORECASE,
+)
 
 
 def extract_article_main_language(xml_tree, namespaces={'xml': 'http://www.w3.org/XML/1998/namespace'}):
@@ -329,8 +350,16 @@ def extract_cite_as_part_one(xml_tree, return_node=False):
     of what it actually says - often surfaces the wrong note in the PDF's
     citable CITE AS field (see issue #1349). Only a <fn> whose <label>
     (or, when there's no <label>, the leading text of its <p>) actually
-    names it as a citation note - "Como citar:", "CITE AS:", "How to cite
-    this article" - is used; nothing is returned when no such note exists.
+    names it as a citation note - matched against _CITE_AS_LABEL_RE, e.g.
+    "Como citar:", "CITE AS:", "How to cite this article" - is used;
+    nothing is returned when no such note exists.
+
+    When the note has no <label> of its own, the citation phrase lives
+    inline at the start of <p> (e.g. "Como citar: Author AB..."), which
+    would otherwise get printed a second time next to the caller's own
+    "CITE AS: " prefix. That leading phrase is stripped in this case (but
+    left alone when it's a separate <label>, since then it isn't part of
+    the returned <p> text to begin with).
 
     Args:
         xml_tree (ElementTree): The XML tree to extract the "cite as" data from.
@@ -346,12 +375,16 @@ def extract_cite_as_part_one(xml_tree, return_node=False):
 
         label = fn.find('label')
         signal = ''.join(label.itertext()) if label is not None else ''.join(part_one.itertext())[:40]
-        if 'cit' not in signal.lower():
+        if not _CITE_AS_LABEL_RE.search(signal):
             continue
 
         if return_node:
             return part_one
-        return xml_utils.get_text_from_node(part_one).strip()
+
+        text = xml_utils.get_text_from_node(part_one).strip()
+        if label is None:
+            text = _CITE_AS_LEADING_PHRASE_RE.sub('', text, count=1)
+        return text
 
 def extract_body_data(xml_tree, table_layout_overrides=None):
     """

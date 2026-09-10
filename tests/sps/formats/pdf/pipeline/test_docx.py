@@ -228,12 +228,18 @@ class TestDocxKeyworksPipe(unittest.TestCase):
 
 
 class TestDocxCiteAsPipe(unittest.TestCase):
+    """
+    cite_as_part_one is only ever the fallback-free journal/volume/location
+    string in these fallback tests (empty/falsy) - a truthy value is a
+    complete citation on its own and takes over the whole field instead
+    (see TestDocxCiteAsPipeWithNote below, and #1349's review round 2).
+    """
 
     def test_uses_fpage_lpage_range_when_present(self):
         docx = _docx_with_layout_styles()
         footer_data = {'volume': '10', 'issue': '2', 'year': '2023',
                        'fpage': 123, 'lpage': 130, 'location_label': '123-130'}
-        docx_pipe.docx_cite_as_pipe(docx, 'Author AB. ', 'Journal Title', footer_data)
+        docx_pipe.docx_cite_as_pipe(docx, '', 'Journal Title', footer_data)
 
         footer = docx_renderer.section.get_first_page_footer(docx)
         para = docx_renderer.text.get_first_paragraph(footer)
@@ -243,7 +249,7 @@ class TestDocxCiteAsPipe(unittest.TestCase):
         docx = _docx_with_layout_styles()
         footer_data = {'volume': '33', 'issue': '3', 'year': '2024',
                        'fpage': '', 'lpage': '', 'location_label': 'e282794'}
-        docx_pipe.docx_cite_as_pipe(docx, 'Author AB. ', 'Journal Title', footer_data)
+        docx_pipe.docx_cite_as_pipe(docx, '', 'Journal Title', footer_data)
 
         footer = docx_renderer.section.get_first_page_footer(docx)
         para = docx_renderer.text.get_first_paragraph(footer)
@@ -257,12 +263,64 @@ class TestDocxCiteAsPipe(unittest.TestCase):
         docx = _docx_with_layout_styles()
         footer_data = {'volume': '', 'issue': '', 'year': '2023',
                        'fpage': '', 'lpage': '', 'location_label': 'e236720'}
-        docx_pipe.docx_cite_as_pipe(docx, 'Author AB. ', 'Journal Title', footer_data)
+        docx_pipe.docx_cite_as_pipe(docx, '', 'Journal Title', footer_data)
 
         footer = docx_renderer.section.get_first_page_footer(docx)
         para = docx_renderer.text.get_first_paragraph(footer)
         self.assertIn('Journal Title e236720.', para.text)
         self.assertNotIn(': e236720', para.text)
+
+
+class TestDocxCiteAsPipeWithNote(unittest.TestCase):
+    """
+    Regression for #1349's review round 2: an explicit "how to cite this
+    article" note is already a complete citation - journal_title/volume/
+    location must not be appended after it (previously duplicated content
+    already in the note, or ran into it with no separator).
+    """
+
+    def test_note_is_used_verbatim_without_appending_journal_or_location(self):
+        docx = _docx_with_layout_styles()
+        footer_data = {'volume': '55', 'issue': '', 'year': '2024',
+                       'fpage': '', 'lpage': '', 'location_label': 'e55bc24197'}
+        docx_pipe.docx_cite_as_pipe(
+            docx,
+            'Colorado Z., G. J.; Valencia-C, G. 2024. Avifauna of a white-sand '
+            'forest in the Colombian Amazon. Acta Amazonica 55: e55bc24197.',
+            'Acta Amazonica',
+            footer_data,
+        )
+
+        footer = docx_renderer.section.get_first_page_footer(docx)
+        para = docx_renderer.text.get_first_paragraph(footer)
+        self.assertEqual(
+            para.text,
+            'CITE AS: Colorado Z., G. J.; Valencia-C, G. 2024. Avifauna of a '
+            'white-sand forest in the Colombian Amazon. Acta Amazonica 55: '
+            'e55bc24197.',
+        )
+        # No duplicated journal title and no second "55: e55bc24197."
+        self.assertEqual(para.text.count('e55bc24197'), 1)
+        self.assertEqual(para.text.count('Acta Amazonica'), 1)
+
+    def test_note_without_trailing_punctuation_gets_a_period(self):
+        docx = _docx_with_layout_styles()
+        footer_data = {'volume': '', 'issue': '', 'year': '2024',
+                       'fpage': '', 'lpage': '', 'location_label': ''}
+        docx_pipe.docx_cite_as_pipe(
+            docx,
+            'Sousa VR, Gomes MM, Couri MS (2024) On Cerodontha. Zoologia 41: '
+            'e23038. https://doi.org/10.1590/S1984-4689.v41.e23038',
+            'Zoologia',
+            footer_data,
+        )
+
+        footer = docx_renderer.section.get_first_page_footer(docx)
+        para = docx_renderer.text.get_first_paragraph(footer)
+        self.assertTrue(para.text.endswith('e23038.'))
+        # journal_title ("Zoologia") is not appended a second time on top
+        # of the one already inside the note's own text.
+        self.assertEqual(para.text.count('Zoologia'), 1)
 
 
 class TestDocxSecondHeaderPipe(unittest.TestCase):
