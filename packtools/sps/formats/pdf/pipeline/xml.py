@@ -366,7 +366,9 @@ def extract_body_data(xml_tree, table_layout_overrides=None):
               section, excluding paragraphs that contain table/figure
               references or wrappers.
             - 'tables': A list of dictionaries representing the tables in the section, as returned by the `extract_table_data` function.
-            - 'figures': A list of dictionaries representing figures in the section, as returned by the `extract_figure_data` function.
+            - 'figures': A list of dictionaries representing figures in the section, as returned by the `extract_figure_data` function
+              (also includes any <disp-formula> that is a graphic rather than
+              MathML/text, since there's nothing to flatten into a paragraph).
     """
     data = []
     seen_fig_keys = set()
@@ -400,6 +402,20 @@ def extract_body_data(xml_tree, table_layout_overrides=None):
                 para_text = xml_utils.get_text_from_node(child, skip_tags={'fig', 'table-wrap'}).strip()
             elif child.tag == 'disp-formula':
                 para_text = xml_utils.get_text_from_node(child).strip()
+                if not para_text and child.find('graphic') is not None:
+                    # A formula rendered as an image (no MathML, no flattenable
+                    # text) has nothing for get_text_from_node to return - it
+                    # was silently dropped entirely. extract_figure_data reads
+                    # the same label/caption/graphic shape <fig> has, so a
+                    # <disp-formula> with a <graphic> can reuse it as-is and
+                    # render like any other figure instead of vanishing.
+                    formula_fig = extract_figure_data(child)
+                    formula_key = child.get('id') or formula_fig.get('href') or ''
+                    if not formula_key or formula_key not in seen_fig_keys:
+                        sec['figures'].append(formula_fig)
+                        if formula_key:
+                            seen_fig_keys.add(formula_key)
+                    continue
             else:
                 continue
             if para_text:
