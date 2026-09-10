@@ -40,6 +40,17 @@ class TestPipelineDocx(unittest.TestCase):
         docx = self._pipeline_docx("a4.xml")
         self.assertEqual(self._start_page_number(docx.sections[0]), '1')
 
+    def test_cite_as_falls_back_to_built_citation_without_editorial_note(self):
+        # a4.xml has no "how to cite this article" footnote at all (see
+        # #1349's review round 2) - end to end, the footer should carry a
+        # complete citation built from metadata instead of the bare
+        # "journal volume: location" fallback.
+        docx = self._pipeline_docx("a4.xml")
+        footer = docx_renderer.section.get_first_page_footer(docx)
+        para = docx_renderer.text.get_first_paragraph(footer)
+        self.assertIn('Medeiros CA, Gouveia EM.', para.text)
+        self.assertIn('https://doi.org/10.1590/1982-3533.2024v33n3.282794', para.text)
+
 
 class TestFormatJournalTitleTwoLines(unittest.TestCase):
     """

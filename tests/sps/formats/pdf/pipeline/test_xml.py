@@ -642,6 +642,107 @@ class TestExtractCiteAsPartOne(unittest.TestCase):
         self.assertEqual(result, expected)
 
 
+class TestBuildFullCitation(unittest.TestCase):
+    """
+    Regression for #1349's review round 2: many articles carry no explicit
+    "how to cite this article" note at all (see
+    test_extract_cite_as_part_one_none_when_no_note_is_a_citation) - this
+    builds a complete citation from the article's own metadata for that
+    fallback case, instead of the caller falling back to a bare
+    "journal volume: location" with no authors/title/DOI.
+    """
+
+    def _article(self, given_names=('Bárbara Passos da Silva', 'Kelly Regina Batista')):
+        contribs = ''.join(
+            f'<contrib contrib-type="author"><name>'
+            f'<surname>Surname{i}</surname><given-names>{gn}</given-names>'
+            f'</name></contrib>'
+            for i, gn in enumerate(given_names)
+        )
+        return etree.fromstring(
+            '<article>'
+            '<front><article-meta>'
+            f'<contrib-group>{contribs}</contrib-group>'
+            '<article-title>Example Article Title</article-title>'
+            '<article-id pub-id-type="doi">10.1590/example</article-id>'
+            '</article-meta></front>'
+            '<journal-meta><abbrev-journal-title>Ex. J.</abbrev-journal-title></journal-meta>'
+            '</article>'
+        )
+
+    def test_builds_complete_citation_with_volume_issue_and_doi(self):
+        xml = self._article()
+        footer_data = {'year': '2024', 'volume': '10', 'issue': '2',
+                        'location_label': 'e12345'}
+        expected = (
+            'Surname0 BPS, Surname1 KRB. Example Article Title. Ex. J. '
+            '2024;10(2):e12345. https://doi.org/10.1590/example'
+        )
+        self.assertEqual(xml_pipe.build_full_citation(xml, footer_data), expected)
+
+    def test_omits_issue_parens_when_issue_is_absent(self):
+        xml = self._article(given_names=('Bárbara Passos da Silva',))
+        footer_data = {'year': '2024', 'volume': '10', 'issue': '',
+                        'location_label': 'e12345'}
+        result = xml_pipe.build_full_citation(xml, footer_data)
+        self.assertIn('2024;10:e12345.', result)
+        self.assertNotIn('()', result)
+
+    def test_omits_volume_when_absent(self):
+        # Continuous-publication articles carry no <volume> - same
+        # omission rule as _format_cite_as_part_two, applied here too.
+        xml = self._article(given_names=('Bárbara Passos da Silva',))
+        footer_data = {'year': '2023', 'volume': '', 'issue': '',
+                        'location_label': 'e236720'}
+        result = xml_pipe.build_full_citation(xml, footer_data)
+        self.assertIn('2023:e236720.', result)
+
+    def test_initials_exclude_lowercase_particles(self):
+        xml = self._article(given_names=('Bárbara Passos da Silva',))
+        footer_data = {'year': '2024', 'volume': '', 'issue': '', 'location_label': ''}
+        result = xml_pipe.build_full_citation(xml, footer_data)
+        self.assertTrue(result.startswith('Surname0 BPS.'))
+
+    def test_truncates_to_et_al_beyond_six_authors(self):
+        xml = self._article(given_names=[f'Author{i}' for i in range(8)])
+        footer_data = {'year': '2024', 'volume': '', 'issue': '', 'location_label': ''}
+        result = xml_pipe.build_full_citation(xml, footer_data)
+        self.assertTrue(result.startswith(
+            'Surname0 A, Surname1 A, Surname2 A, Surname3 A, Surname4 A, Surname5 A, et al.'
+        ))
+
+    def test_returns_empty_string_when_there_are_no_authors(self):
+        xml = etree.fromstring(
+            '<article><front><article-meta>'
+            '<article-title>Example Article Title</article-title>'
+            '</article-meta></front></article>'
+        )
+        footer_data = {'year': '2024', 'volume': '', 'issue': '', 'location_label': ''}
+        self.assertEqual(xml_pipe.build_full_citation(xml, footer_data), '')
+
+    def test_falls_back_to_full_journal_title_when_no_abbrev(self):
+        xml = etree.fromstring(
+            '<article><front><article-meta>'
+            '<contrib-group><contrib contrib-type="author"><name>'
+            '<surname>Surname</surname><given-names>Ana Maria</given-names>'
+            '</name></contrib></contrib-group>'
+            '<article-title>Example Article Title</article-title>'
+            '</article-meta></front>'
+            '<journal-meta><journal-title-group><journal-title>Full Journal Name</journal-title>'
+            '</journal-title-group></journal-meta>'
+            '</article>'
+        )
+        footer_data = {'year': '2024', 'volume': '', 'issue': '', 'location_label': ''}
+        result = xml_pipe.build_full_citation(xml, footer_data)
+        self.assertIn('Full Journal Name.', result)
+
+    def test_unknown_style_returns_empty_string(self):
+        xml = self._article(given_names=('Bárbara Passos da Silva',))
+        footer_data = {'year': '2024', 'volume': '', 'issue': '', 'location_label': ''}
+        result = xml_pipe.build_full_citation(xml, footer_data, style='abnt')
+        self.assertEqual(result, '')
+
+
 class TestExtractContribData(unittest.TestCase):
 
     def test_extract_contrib_data_complete(self):

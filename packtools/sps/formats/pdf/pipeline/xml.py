@@ -386,6 +386,148 @@ def extract_cite_as_part_one(xml_tree, return_node=False):
             text = _CITE_AS_LEADING_PHRASE_RE.sub('', text, count=1)
         return text
 
+# Only 'vancouver' exists today. Kept as a plain function parameter/dict
+# dispatch (instead of hardcoding the format inline) so a future per-journal
+# JSON config can plug in a different style by name without changing
+# build_full_citation's contract - the same not-wired-yet-to-config pattern
+# as layout_config.load_page_attributes.
+CITATION_STYLE_VANCOUVER = 'vancouver'
+_MAX_CITATION_AUTHORS_BEFORE_ET_AL = 6
+
+
+def _extract_citation_authors(xml_tree):
+    """
+    Returns the article's own contributors as Vancouver-style "Surname IN"
+    strings (surname, then the initials of given names - lowercase
+    particles like "da"/"de"/"dos" excluded from initials, e.g. "Bárbara
+    Passos da Silva" -> "BPS").
+
+    Args:
+        xml_tree (ElementTree): The XML tree to extract authors from.
+
+    Returns:
+        list: Author strings in document order; empty if there's no
+        <contrib-group> or no <contrib> has both <surname> and text.
+    """
+    article_meta = xml_tree.find('./front/article-meta')
+    metadata_scope = article_meta if article_meta is not None else xml_tree
+    contrib_group = metadata_scope.find('.//contrib-group')
+    if contrib_group is None:
+        return []
+
+    authors = []
+    for contrib in contrib_group.findall('.//contrib'):
+        name = contrib.find('name')
+        if name is None:
+            continue
+        surname = name.find('surname')
+        if surname is None or not (surname.text or '').strip():
+            continue
+
+        given_names = name.find('given-names')
+        initials = ''
+        if given_names is not None and given_names.text:
+            initials = ''.join(
+                word[0].upper() for word in given_names.text.split() if word[:1].isupper()
+            )
+
+        author = surname.text.strip()
+        if initials:
+            author = f'{author} {initials}'
+        authors.append(author)
+
+    return authors
+
+
+def _sentence(text):
+    """Appends a period unless text already ends with terminal punctuation."""
+    return text if text.endswith(('.', '!', '?')) else f'{text}.'
+
+
+def _format_vancouver_citation(xml_tree, footer_data):
+    """
+    Builds a Vancouver-style citation: "Surname IN, Surname IN. Article
+    title. Journal abbrev. Year;Volume(Issue):location. https://doi.org/...".
+    Missing pieces (issue, DOI...) are simply omitted rather than leaving a
+    stray separator; returns '' when there are no authors to start from.
+    """
+    authors = _extract_citation_authors(xml_tree)
+    if not authors:
+        return ''
+    if len(authors) > _MAX_CITATION_AUTHORS_BEFORE_ET_AL:
+        authors = authors[:_MAX_CITATION_AUTHORS_BEFORE_ET_AL] + ['et al']
+    segments = [f"{', '.join(authors)}."]
+
+    title = extract_article_title(xml_tree)
+    if title:
+        segments.append(_sentence(title))
+
+    abbrev_journal = xml_tree.find('.//abbrev-journal-title')
+    journal = (
+        ''.join(abbrev_journal.itertext()).strip()
+        if abbrev_journal is not None
+        else extract_journal_title(xml_tree)
+    )
+    if journal:
+        segments.append(_sentence(journal))
+
+    year = footer_data.get('year') or ''
+    volume = footer_data.get('volume') or ''
+    issue = footer_data.get('issue') or ''
+    location = footer_data.get('location_label') or ''
+
+    vol_issue = f'{volume}({issue})' if volume and issue else volume
+    date_and_location = year
+    if vol_issue:
+        date_and_location = f'{date_and_location};{vol_issue}' if date_and_location else vol_issue
+    if location:
+        date_and_location = f'{date_and_location}:{location}' if date_and_location else location
+    if date_and_location:
+        segments.append(_sentence(date_and_location))
+
+    # Not extract_doi(): that function raises AttributeError on a missing
+    # DOI by design (see test_extract_doi_missing_doi) - a DOI is just
+    # another optional piece of a citation, not something to blow up over.
+    doi_node = xml_tree.find('.//article-id[@pub-id-type="doi"]')
+    doi = doi_node.text if doi_node is not None else None
+    if doi:
+        segments.append(f'https://doi.org/{doi}')
+
+    return ' '.join(segments)
+
+
+_CITATION_STYLE_FORMATTERS = {
+    CITATION_STYLE_VANCOUVER: _format_vancouver_citation,
+}
+
+
+def build_full_citation(xml_tree, footer_data, style=CITATION_STYLE_VANCOUVER):
+    """
+    Builds a complete "how to cite this article" citation from the
+    article's own metadata (authors, title, journal, volume/issue/location,
+    DOI), for use as a fallback when `extract_cite_as_part_one` finds no
+    explicit editorial note (see issue #1349's review: some articles simply
+    don't carry one).
+
+    `style` selects the citation format. Only CITATION_STYLE_VANCOUVER
+    exists today; it's a plain parameter (not read from a config file) so a
+    future per-journal JSON config can choose it by name later without
+    changing this function's contract - not wired to the CLI/API yet.
+
+    Args:
+        xml_tree (ElementTree): The XML tree to build the citation from.
+        footer_data (dict): Output of `extract_footer_data` (year/volume/issue/location_label).
+        style (str, optional): Citation format identifier. Defaults to CITATION_STYLE_VANCOUVER.
+
+    Returns:
+        str: The complete citation, or '' when the style is unknown or the
+        article has no authors to build one from.
+    """
+    formatter = _CITATION_STYLE_FORMATTERS.get(style)
+    if formatter is None:
+        return ''
+    return formatter(xml_tree, footer_data)
+
 def extract_body_data(xml_tree, table_layout_overrides=None):
     """
     Extracts the body data from an XML tree, including section titles, paragraphs, and tables.
