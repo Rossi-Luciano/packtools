@@ -3,7 +3,7 @@ import tempfile
 import unittest
 
 from docx import Document
-from docx.shared import Cm
+from docx.shared import Cm, Pt
 from PIL import Image
 
 from packtools.sps.formats.pdf.renderer.docx.figure import (
@@ -38,6 +38,33 @@ class TestAddCaption(unittest.TestCase):
         _add_caption(docx, {'label': 'Figure 1', 'caption': 'A caption'}, 'Does Not Exist')
         p = docx.paragraphs[-1]
         self.assertEqual(p.paragraph_format.line_spacing, 1.0)
+
+
+class TestAddCaptionSpaceAfter(unittest.TestCase):
+    """
+    Regression for issue #1346: the caption paragraph's own style (SCL
+    Table Heading) has no space_after, so a section title immediately
+    following a figure (space_before=0 for a top-level section) sat right
+    on top of the caption, with visibly less breathing room than other
+    transitions in the document (e.g. body paragraph -> section title,
+    which gets 5.65pt from the paragraph's own space_after). space_after
+    is now set explicitly on the caption, same fix already applied to
+    docx_keywords_pipe for issue #1322.
+    """
+
+    def test_caption_has_space_after_matching_body_paragraph(self):
+        docx = Document()
+        docx.add_paragraph()
+        _add_caption(docx, {'label': 'Figure 1', 'caption': 'A caption'}, 'SCL Table Heading')
+        p = docx.paragraphs[-1]
+        self.assertEqual(p.paragraph_format.space_after, Pt(5.65))
+
+    def test_space_after_set_even_when_named_style_is_missing(self):
+        docx = Document()
+        docx.add_paragraph()
+        _add_caption(docx, {'label': 'Figure 1', 'caption': 'A caption'}, 'Does Not Exist')
+        p = docx.paragraphs[-1]
+        self.assertEqual(p.paragraph_format.space_after, Pt(5.65))
 
 
 class TestDecideFigureLayoutUnits(unittest.TestCase):
