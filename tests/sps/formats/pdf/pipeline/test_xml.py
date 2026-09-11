@@ -331,6 +331,11 @@ class TestExtractArticleType(unittest.TestCase):
         self.assertEqual(result, '')
 
 
+def _plain_para(text):
+    """A single-segment, unstyled paragraph, as extract_body_data now returns it."""
+    return [{'type': 'text', 'text': text, 'italic': False, 'bold': False, 'superscript': False, 'subscript': False}]
+
+
 class TestExtractBodyData(unittest.TestCase):
 
     def test_extract_body_data_basic(self):
@@ -347,7 +352,7 @@ class TestExtractBodyData(unittest.TestCase):
             {
                 'level': 1,
                 'title': 'Section 1',
-                'paragraphs': ['Paragraph 1', 'Paragraph 2'],
+                'paragraphs': [_plain_para('Paragraph 1'), _plain_para('Paragraph 2')],
                 'tables': [],
                 'figures': [],
             }
@@ -377,7 +382,7 @@ class TestExtractBodyData(unittest.TestCase):
             {
                 'level': 2,
                 'title': 'Introduction',
-                'paragraphs': ['Body text.'],
+                'paragraphs': [_plain_para('Body text.')],
                 'tables': [],
                 'figures': [],
             }
@@ -406,7 +411,7 @@ class TestExtractBodyData(unittest.TestCase):
             {
                 'level': 1,
                 'title': 'Section 1',
-                'paragraphs': ['Paragraph 1'],
+                'paragraphs': [_plain_para('Paragraph 1')],
                 'tables': [
                     {
                         'label': 'Table 1',
@@ -443,14 +448,14 @@ class TestExtractBodyData(unittest.TestCase):
             {
                 'level': 1,
                 'title': 'Section 1',
-                'paragraphs': ['Paragraph 1'],
+                'paragraphs': [_plain_para('Paragraph 1')],
                 'tables': [],
                 'figures': [],
             },
             {
                 'level': 2,
                 'title': 'Subsection 1.1',
-                'paragraphs': ['Paragraph 1.1'],
+                'paragraphs': [_plain_para('Paragraph 1.1')],
                 'tables': [],
                 'figures': [],
             }
@@ -479,7 +484,7 @@ class TestExtractBodyData(unittest.TestCase):
             {
                 'level': 1,
                 'title': 'Section 1',
-                'paragraphs': ['Paragraph with Table 1'],
+                'paragraphs': [_plain_para('Paragraph with Table 1')],
                 'tables': [
                     {
                         'label': 'Table 1',
@@ -515,7 +520,7 @@ class TestExtractBodyData(unittest.TestCase):
         result = xml_pipe.extract_body_data(xml)
         self.assertEqual(
             result[0]['paragraphs'],
-            ['Pressure is increasing (Lang and Barling, 2012; Ripple et al., 2019) worldwide.'],
+            [_plain_para('Pressure is increasing (Lang and Barling, 2012; Ripple et al., 2019) worldwide.')],
         )
 
     def test_embedded_fig_tail_whitespace_is_collapsed_not_left_raw(self):
@@ -532,7 +537,32 @@ class TestExtractBodyData(unittest.TestCase):
         result = xml_pipe.extract_body_data(xml)
         self.assertEqual(
             result[0]['paragraphs'],
-            ['See the figure below for details.'],
+            [_plain_para('See the figure below for details.')],
+        )
+
+    def test_extract_body_data_preserves_inline_formatting(self):
+        # Item 04 of the pdf_generator backlog: <italic>/<bold>/<sup>/<sub>
+        # inside a body paragraph used to be flattened to plain text by
+        # get_text_from_node. extract_body_data now keeps them as
+        # style-tagged segments instead of a single string.
+        xml = etree.fromstring(
+            '<article><sec><title>Results</title>'
+            '<p>The species <italic>Genus species</italic> was observed'
+            '<sup>1</sup> in <bold>high</bold> numbers.</p>'
+            '</sec></article>'
+        )
+        result = xml_pipe.extract_body_data(xml)
+        self.assertEqual(
+            result[0]['paragraphs'],
+            [[
+                {'type': 'text', 'text': 'The species ', 'italic': False, 'bold': False, 'superscript': False, 'subscript': False},
+                {'type': 'text', 'text': 'Genus species', 'italic': True, 'bold': False, 'superscript': False, 'subscript': False},
+                {'type': 'text', 'text': ' was observed', 'italic': False, 'bold': False, 'superscript': False, 'subscript': False},
+                {'type': 'text', 'text': '1', 'italic': False, 'bold': False, 'superscript': True, 'subscript': False},
+                {'type': 'text', 'text': ' in ', 'italic': False, 'bold': False, 'superscript': False, 'subscript': False},
+                {'type': 'text', 'text': 'high', 'italic': False, 'bold': True, 'superscript': False, 'subscript': False},
+                {'type': 'text', 'text': ' numbers.', 'italic': False, 'bold': False, 'superscript': False, 'subscript': False},
+            ]],
         )
 
 
